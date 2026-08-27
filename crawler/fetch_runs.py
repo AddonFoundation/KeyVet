@@ -48,6 +48,7 @@ def extract_run(rank_entry):
             {
                 "name": member["character"]["name"],
                 "realm": member["character"]["realm"]["slug"],
+                "realmName": member["character"]["realm"]["name"],
                 "region": member["character"]["region"]["slug"],
                 "class": member["character"]["class"]["slug"],
                 "spec": member["character"]["spec"]["slug"],
