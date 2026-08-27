@@ -1,22 +1,12 @@
 import requests, time, json, argparse, os
+from datetime import datetime, timezone
 
 BASE = "https://raider.io/api/v1"
 API_KEY = os.environ["RAIDERIO_API_KEY"]
-SEASON = "season-mn-2"
 
-DUNGEONS = [
-    "altar-of-fangs",
-    "den-of-nalorakk",
-    "kings-rest",
-    "murder-row",
-    "ruby-life-pools",
-    "temple-of-sethraliss",
-    "the-blinding-vale",
-    "voidscar-arena",
-]
-
-def get(session, path, **params):
+def get(session, path, max_retries=5, **params):
     params["access_key"] = API_KEY
+    attempt = 0
     while True:
         r = session.get(f"{BASE}{path}", params=params)
         if r.status_code == 429:
@@ -26,8 +16,25 @@ def get(session, path, **params):
             continue
         if r.status_code == 400:
             return None  # signal "no more pages"
+        if r.status_code >= 500:
+            attempt += 1
+            if attempt > max_retries:
+                r.raise_for_status()
+            wait = min(2 ** attempt, 60)
+            print(f"Server error {r.status_code}, retry {attempt}/{max_retries} in {wait}s...")
+            time.sleep(wait)
+            continue
         r.raise_for_status()
         return r.json()
+
+def get_current_season_and_dungeons(session, expansion_id=11):
+    data = get(session, "/mythic-plus/static-data", expansion_id=expansion_id)
+    main_seasons = [s for s in data["seasons"] if s["is_main_season"]]
+    if not main_seasons:
+        raise RuntimeError("No main season found in static-data response")
+    current = main_seasons[0]
+    dungeon_slugs = [d["slug"] for d in current["dungeons"]]
+    return current["slug"], dungeon_slugs
 
 def extract_run(rank_entry):
     run = rank_entry["run"]
@@ -50,13 +57,13 @@ def extract_run(rank_entry):
         ],
     }
 
-def fetch_dungeon(session, dungeon_slug, min_level):
+def fetch_dungeon(session, season, dungeon_slug, min_level):
     print(f"=== Fetching {dungeon_slug} ===")
     runs_for_dungeon = []
     page = 0
     while True:
         data = get(session, "/mythic-plus/runs",
-                    season=SEASON,
+                    season=season,
                     region="us",
                     dungeon=dungeon_slug,
                     page=page)
@@ -76,13 +83,31 @@ def fetch_dungeon(session, dungeon_slug, min_level):
 def main(min_level, out_path):
     session = requests.Session()
 
-    all_runs = []
-    for dungeon_slug in DUNGEONS:
-        all_runs.extend(fetch_dungeon(session, dungeon_slug, min_level))
+    season, dungeons = get_current_season_and_dungeons(session)
+    print(f"Season: {season}")
+    print(f"Dungeons: {dungeons}")
 
-    print(f"Total qualifying runs collected across all dungeons: {len(all_runs)}")
+    all_runs = []
+    failed_dungeons = []
+    for dungeon_slug in dungeons:
+        try:
+            all_runs.extend(fetch_dungeon(session, season, dungeon_slug, min_level))
+        except requests.exceptions.HTTPError as e:
+            print(f"  {dungeon_slug}: FAILED after retries — {e}")
+            failed_dungeons.append(dungeon_slug)
+            continue
+
+    print(f"Total qualifying runs collected: {len(all_runs)}")
+    if failed_dungeons:
+        print(f"WARNING: failed dungeons (partial data): {failed_dungeons}")
+
     with open(out_path, "w") as f:
-        json.dump(all_runs, f)
+        json.dump({
+            "season": season,
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "failed_dungeons": failed_dungeons,
+            "runs": all_runs,
+        }, f)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
