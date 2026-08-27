@@ -24,7 +24,7 @@ jobs:
       - name: Crawl Raider.IO runs feed
         env:
           RAIDERIO_API_KEY: ${{ secrets.RAIDERIO_API_KEY }}
-        run: python crawler/fetch_runs.py --min-level 6 --out crawler/raw_runs.json
+        run: python -u crawler/fetch_runs.py --min-level 6 --out crawler/raw_runs.json
 
       - name: Build Lua data file
         run: python crawler/build_lua.py --in crawler/raw_runs.json --out addon/db/keyvet_data.lua
