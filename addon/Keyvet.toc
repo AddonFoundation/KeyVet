@@ -1,1 +1,11 @@
 
+## Interface: 120100
+## Title: Keyvet
+## Notes: Pug vetting helper using Raider.IO Mythic+ leaderboard data
+## Author: Roffe
+## Version: 1.0.0
+## IconTexture: Interface\AddOns\Keyvet\icon
+## SavedVariables: KeyvetConfig
+
+db\keyvet_data.lua
+Keyvet.lua
